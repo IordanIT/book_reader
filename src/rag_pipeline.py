@@ -1,5 +1,3 @@
-"""RAG-пайплайн: поиск + генерация через Ollama."""
-
 import ollama
 
 from book_loader import TextChunk
@@ -8,11 +6,8 @@ from vector_store import SearchResult, VectorStore
 
 
 class RAGPipeline:
-    """Полный RAG-пайплайн для вопросов по книгам."""
-
-    SYSTEM_PROMPT = """Ты — помощник по литературе. Отвечай на вопросы пользователя,
-используя ТОЛЬКО предоставленные фрагменты текста книги. Давай точные ответы со ссылками на источник.
-Если в контексте нет ответа — честно скажи об этом."""
+    SYSTEM_PROMPT = """You are a literature assistant. Answer user questions using ONLY the provided book text fragments.
+Give accurate answers with references to the source. If the answer is not in the context, say so."""
 
     def __init__(
         self,
@@ -27,12 +22,11 @@ class RAGPipeline:
         self.top_k = top_k
 
     def query(self, question: str, book_title: str | None = None) -> str:
-        """Обрабатывает вопрос и возвращает ответ с источниками."""
         query_emb = self.embedder.encode_query(question)
         results: list[SearchResult] = self.vector_store.search(query_emb, top_k=self.top_k, book_title=book_title)
 
         if not results:
-            return "К сожалению, не удалось найти релевантные фрагменты в книге."
+            return "Could not find relevant fragments in the book."
 
         context = self._format_context(results)
         prompt = self._build_prompt(question, context)
@@ -49,34 +43,34 @@ class RAGPipeline:
         answer = response["message"]["content"]
         sources = self._format_sources(results)
 
-        return f"{answer}\n\n---\n📚 Источники:\n{sources}"
+        return f"{answer}\n\n---\nSources:\n{sources}"
 
     def _format_context(self, results: list[SearchResult]) -> str:
         parts = []
         for i, r in enumerate(results, 1):
-            header = f"[Фрагмент {i} | {r.chunk.book_title}"
+            header = f"[Fragment {i} | {r.chunk.book_title}"
             if r.chunk.page:
-                header += f", стр. {r.chunk.page}"
+                header += f", p. {r.chunk.page}"
             header += f"]"
             parts.append(f"{header}\n{r.chunk.text}")
         return "\n\n".join(parts)
 
     def _build_prompt(self, question: str, context: str) -> str:
-        return f"""Контекст из книги:
+        return f"""Book context:
 {context}
 
-Вопрос пользователя: {question}
+User question: {question}
 
-Ответь на русском языке, опираясь на контекст."""
+Answer based on the context provided."""
 
     def _format_sources(self, results: list[SearchResult]) -> str:
         lines = []
         for r in results:
-            info = f"• {r.chunk.book_title}"
+            info = f"* {r.chunk.book_title}"
             if r.chunk.page:
-                info += f", страница {r.chunk.page}"
-            info += f" (релевантность: {r.score:.2f})"
+                info += f", page {r.chunk.page}"
+            info += f" (relevance: {r.score:.2f})"
             preview = r.chunk.text[:100].replace("\n", " ")
-            info += f"\n  «{preview}...»"
+            info += f"\n  \"{preview}...\""
             lines.append(info)
         return "\n".join(lines)

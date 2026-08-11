@@ -1,6 +1,3 @@
-"""Загрузка и нарезка книг на чанки."""
-
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
@@ -17,21 +14,18 @@ class TextChunk:
 
 
 class BookLoader:
-    """Загружает книги из директории и разбивает на чанки."""
-
     def __init__(self, books_dir: str, chunk_size: int = 500, chunk_overlap: int = 50):
         self.books_dir = Path(books_dir)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
     def load_all_books(self) -> List[TextChunk]:
-        """Загружает все книги из директории."""
         all_chunks = []
         for file_path in self.books_dir.iterdir():
             if file_path.suffix.lower() in (".txt", ".pdf"):
                 chunks = self._load_file(file_path)
                 all_chunks.extend(chunks)
-                print(f"  Загружено: {file_path.name} — {len(chunks)} чанков")
+                print(f"  Loaded: {file_path.name} - {len(chunks)} chunks")
         return all_chunks
 
     def _load_file(self, file_path: Path) -> List[TextChunk]:
@@ -55,7 +49,6 @@ class BookLoader:
         return chunks
 
     def _split_text(self, text: str, title: str, page: int | None = None) -> List[TextChunk]:
-        """Разбивает текст на чанки с перекрытием."""
         words = text.split()
         chunks = []
         start = 0

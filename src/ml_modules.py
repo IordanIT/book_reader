@@ -1,22 +1,3 @@
-"""ML-модули: дообученные модели для RAG-пайплайна.
-
-Архитектура расширений:
-┌─────────────────────────────────────────────────────────────┐
-│                     RAG Pipeline v2                          │
-│                                                              │
-│  ┌──────────┐   ┌──────────┐   ┌───────────┐   ┌────────┐ │
-│  │ Question │   │Embedding │   │ Re-ranker │   │  LLM   │ │
-│  │Classifier│   │  Model   │   │(cross-    │   │(custom │ │
-│  │(fine-    │   │(fine-    │   │ encoder)  │   │ fine-  │ │
-│  │ tuned)   │   │ tuned)   │   │           │   │ tuned) │ │
-│  └──────────┘   └──────────┘   └───────────┘   └────────┘ │
-│       ↓              ↓              ↓              ↓        │
-│  тип вопроса   векторизация   переранжирование   генерация  │
-└─────────────────────────────────────────────────────────────┘
-
-Как дообучить и подключить каждую модель — см. README_finetune.md
-"""
-
 from __future__ import annotations
 
 import json
@@ -33,16 +14,12 @@ from book_loader import TextChunk
 from vector_store import SearchResult
 
 
-# ──────────────────────────────────────────────────────────────
-# 1. КЛАССИФИКАТОР ВОПРОСОВ
-# ──────────────────────────────────────────────────────────────
-
 class QuestionType(str, Enum):
-    PLOT = "plot"            # сюжет, что произошло
-    CHARACTER = "character"  # герои, характеристики
-    QUOTE = "quote"          # цитаты, кто сказал
-    THEME = "theme"          # темы, анализ, смысл
-    CONTEXT = "context"      # исторический контекст
+    PLOT = "plot"
+    CHARACTER = "character"
+    QUOTE = "quote"
+    THEME = "theme"
+    CONTEXT = "context"
     UNKNOWN = "unknown"
 
 
@@ -51,26 +28,22 @@ class ClassifiedQuestion:
     question: str
     qtype: QuestionType
     confidence: float
-    reformulated: str  # переформулировка для лучшего поиска
+    reformulated: str
 
 
 class BaseQuestionClassifier(ABC):
-    """Интерфейс классификатора вопросов."""
-
     @abstractmethod
     def classify(self, question: str) -> ClassifiedQuestion:
         ...
 
 
 class RuleBasedClassifier(BaseQuestionClassifier):
-    """Простой классификатор на правилах (без ML)."""
-
     KEYWORDS = {
-        QuestionType.CHARACTER: ["герой", "персонаж", "кто такой", "кто такая", "описание", "характер"],
-        QuestionType.QUOTE: ["цитат", "сказал", "говорить", "фраза", "слова"],
-        QuestionType.THEME: ["тема", "смысл", "идея", "проблема", "анализ", "символ"],
-        QuestionType.PLOT: ["что случилось", "почему", "как", "произошло", "событие", "сюжет"],
-        QuestionType.CONTEXT: ["историческ", "эпоха", "когда написан", "автор", "фон"],
+        QuestionType.CHARACTER: ["geroy", "personazh", "kto takoy", "kto takaya", "opisanie", "kharakter"],
+        QuestionType.QUOTE: ["tsitat", "skazal", "govorit", "fraza", "slova"],
+        QuestionType.THEME: ["tema", "smysl", "ideya", "problema", "analiz", "simvol"],
+        QuestionType.PLOT: ["chto sluchilos", "pochemu", "kak", "proizoshlo", "sobytie", "syuzhet"],
+        QuestionType.CONTEXT: ["istorichesk", "epokha", "kogda napisan", "avtor", "fon"],
     }
 
     def classify(self, question: str) -> ClassifiedQuestion:
@@ -98,60 +71,52 @@ class RuleBasedClassifier(BaseQuestionClassifier):
         )
 
     def _reformulate(self, question: str, qtype: QuestionType) -> str:
-        """Добавляет контекст для лучшего поиска по эмбеддингам."""
         prefixes = {
-            QuestionType.CHARACTER: "описание персонажа характеристика ",
-            QuestionType.QUOTE: "цитата слова персонажа диалог ",
-            QuestionType.THEME: "тема идея смысл анализ произведения ",
-            QuestionType.PLOT: "событие сюжет действие развитие ",
-            QuestionType.CONTEXT: "исторический контекст эпоха автор ",
+            QuestionType.CHARACTER: "opisanie personazha kharakteristika ",
+            QuestionType.QUOTE: "tsitata slova personazha dialog ",
+            QuestionType.THEME: "tema ideya smysl analiz proizvedeniya ",
+            QuestionType.PLOT: "sobytie syuzhet deystvit razvitie ",
+            QuestionType.CONTEXT: "istoricheskiy kontekst epokha avtor ",
         }
         prefix = prefixes.get(qtype, "")
         return prefix + question
 
 
 class FineTunedClassifier(BaseQuestionClassifier):
-    """Дообученный классификатор на базе sentence-transformers.
-
-    Обучение: см. src/ml/classifier_train.py
-    Использует близость к эмбеддингам эталонных вопросов каждого класса.
-    """
-
     EXAMPLES = {
         QuestionType.PLOT: [
-            "Что произошло в этой главе?",
-            "Как развивался сюжет?",
-            "Почему герой принял это решение?",
-            "Чем закончилась книга?",
+            "Chto proizoshlo etoy glave?",
+            "Kak razvivalsya syuzhet?",
+            "Pochemu geroy prinyal eto reshenie?",
+            "Chem zakonchilas kniga?",
         ],
         QuestionType.CHARACTER: [
-            "Кто такой Раскольников?",
-            "Опиши характер Наташи Ростовой",
-            "Какие герои главные?",
-            "Кто антагонист произведения?",
+            "Kto takoy Raskolnikov?",
+            "Opishi kharakter Natasha Rostovoy",
+            "Kakie geroi glavnye?",
+            "Kto antagonist proizvedeniya?",
         ],
         QuestionType.QUOTE: [
-            "Кто сказал «все счастливы одинаково»?",
-            "Найди цитату про честь",
-            "Какие слова произнёс герой?",
-            "Какая фраза повторяется в книге?",
+            "Kto skazal «vse schastlivy odinakovo»?",
+            "Naydi tsitu pro chest'",
+            "Kakie slova proiznes geroy?",
+            "Kakaya fraza povtoryaetsya v knige?",
         ],
         QuestionType.THEME: [
-            "Какова главная тема произведения?",
-            "О чем эта книга?",
-            "Какой смысл вложил автор?",
-            "Какие проблемы поднимаются?",
+            "Kakova glavnaya tema proizvedeniya?",
+            "O chem eta kniga?",
+            "Kakoy smysl vlozhil avtor?",
+            "Kakie problemy podnimayutsya?",
         ],
         QuestionType.CONTEXT: [
-            "Когда было написано произведение?",
-            "В какую эпоху происходит действие?",
-            "Что известно об авторе?",
-            "Каков исторический фон?",
+            "Kogda bylo napisano proizvedenie?",
+            "V kakuyu epokhu proiskhodit deystvie?",
+            "Chto izvestno ob avtore?",
+            "Kakov istoricheskiy fon?",
         ],
     }
 
     def __init__(self, model_path: str | None = None):
-        """Если model_path указан — загружает дообученную модель."""
         if model_path and Path(model_path).exists():
             self.model = SentenceTransformer(model_path)
             self.use_finetuned = True
@@ -159,7 +124,6 @@ class FineTunedClassifier(BaseQuestionClassifier):
             self.model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
             self.use_finetuned = False
 
-        # Предвычисляем эмбеддинги эталонных вопросов
         self.example_embeddings: dict[QuestionType, np.ndarray] = {}
         self._precompute_examples()
 
@@ -175,7 +139,6 @@ class FineTunedClassifier(BaseQuestionClassifier):
         best_score = -1.0
 
         for qtype, embs in self.example_embeddings.items():
-            # Средний косинус с эталонами класса
             similarities = embs @ q_emb
             score = float(np.mean(similarities))
 
@@ -194,22 +157,16 @@ class FineTunedClassifier(BaseQuestionClassifier):
 
     def _reformulate(self, question: str, qtype: QuestionType) -> str:
         prefixes = {
-            QuestionType.CHARACTER: "описание персонажа характеристика ",
-            QuestionType.QUOTE: "цитата слова персонажа диалог ",
-            QuestionType.THEME: "тема идея смысл анализ ",
-            QuestionType.PLOT: "событие сюжет действие ",
-            QuestionType.CONTEXT: "исторический контекст эпоха ",
+            QuestionType.CHARACTER: "opisanie personazha kharakteristika ",
+            QuestionType.QUOTE: "tsitata slova personazha dialog ",
+            QuestionType.THEME: "tema ideya smysl analiz ",
+            QuestionType.PLOT: "sobytie syuzhet deystvie ",
+            QuestionType.CONTEXT: "istoricheskiy kontekst epokha ",
         }
         return prefixes.get(qtype, "") + question
 
 
-# ──────────────────────────────────────────────────────────────
-# 2. EMBEDDING МОДЕЛЬ (fine-tuned)
-# ──────────────────────────────────────────────────────────────
-
 class BaseEmbedder(ABC):
-    """Интерфейс для эмбеддинг-моделей."""
-
     @abstractmethod
     def encode_chunks(self, chunks: list[TextChunk], batch_size: int = 32) -> np.ndarray:
         ...
@@ -225,8 +182,6 @@ class BaseEmbedder(ABC):
 
 
 class DefaultEmbedder(BaseEmbedder):
-    """Стандартная многоязычная модель."""
-
     def __init__(self, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
         self.model = SentenceTransformer(model_name)
         self._dim = self.model.get_sentence_embedding_dimension()
@@ -244,33 +199,20 @@ class DefaultEmbedder(BaseEmbedder):
 
 
 class FineTunedEmbedder(BaseEmbedder):
-    """Дообученная на литературных текстах модель эмбеддингов.
-
-    Обучение: src/ml/embedding_train.py
-    Использует contrastive learning на парах (query, relevant_chunk).
-    """
-
     def __init__(self, model_path: str, base_model: str | None = None):
-        """
-        Args:
-            model_path: путь к дообученной модели
-            base_model: базовая модель (если использовался LoRA/Adapter)
-        """
         path = Path(model_path)
         if not path.exists():
-            raise FileNotFoundError(f"Модель не найдена: {model_path}")
+            raise FileNotFoundError(f"Model not found: {model_path}")
 
         if base_model:
-            # Если использовался PEFT/LoRA — загружаем базу + адаптер
             from peft import PeftModel
             base = SentenceTransformer(base_model)
             self.model = PeftModel.from_pretrained(base, model_path)
         else:
-            # Полностью дообученная модель
             self.model = SentenceTransformer(model_path)
 
         self._dim = self.model.get_sentence_embedding_dimension()
-        print(f"  ✅ Fine-tuned embedder загружен: {model_path} (dim={self._dim})")
+        print(f"  Fine-tuned embedder loaded: {model_path} (dim={self._dim})")
 
     @property
     def dim(self) -> int:
@@ -284,39 +226,24 @@ class FineTunedEmbedder(BaseEmbedder):
         return self.model.encode([query], normalize_embeddings=True)
 
 
-# ──────────────────────────────────────────────────────────────
-# 3. RE-RANKER (кросс-энкодер)
-# ──────────────────────────────────────────────────────────────
-
 class BaseReranker(ABC):
-    """Интерфейс для переранжирования."""
-
     @abstractmethod
     def rerank(self, query: str, results: list[SearchResult], top_k: int = 5) -> list[SearchResult]:
         ...
 
 
 class NoReranker(BaseReranker):
-    """Без переранжирования (пропускаем шаг)."""
-
     def rerank(self, query: str, results: list[SearchResult], top_k: int = 5) -> list[SearchResult]:
         return results[:top_k]
 
 
 class CrossEncoderReranker(BaseReranker):
-    """Кросс-энкодер для переранжирования результатов.
-
-    Обучение: src/ml/reranker_train.py
-    Берёт query и каждый чанк, вычисляет точечную релевантность.
-    """
-
     def __init__(self, model_path: str | None = None):
         if model_path and Path(model_path).exists():
             self.model = CrossEncoder(model_path)
             self.use_finetuned = True
-            print(f"  ✅ Fine-tuned reranker загружен: {model_path}")
+            print(f"  Fine-tuned reranker loaded: {model_path}")
         else:
-            # Мультиязычный кросс-энкодер по умолчанию
             self.model = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
             self.use_finetuned = False
 
@@ -334,37 +261,29 @@ class CrossEncoderReranker(BaseReranker):
         return results[:top_k]
 
 
-# ──────────────────────────────────────────────────────────────
-# 4. LLM ГЕНЕРАЦИЯ (fine-tuned)
-# ──────────────────────────────────────────────────────────────
-
 class BaseLLM(ABC):
-    """Интерфейс для генерации ответов."""
-
     @abstractmethod
     def generate(self, question: str, context: str, question_type: QuestionType | None = None) -> str:
         ...
 
 
 class OllamaLLM(BaseLLM):
-    """Генерация через Ollama (можно указать свою дообученную модель)."""
-
-    SYSTEM_PROMPT = """Ты — литературный ассистент. Отвай на вопросы, используя предоставленный контекст из книги.
-Давай точные ответы со ссылками на текст. Если ответа в контексте нет — скажи честно.
-Отвечай на русском языке, доступно и структурированно."""
+    SYSTEM_PROMPT = """You are a literature assistant. Answer questions using the provided book context.
+Give accurate answers with text references. If the answer is not in context, say so.
+Answer in Russian, clearly and structured."""
 
     def __init__(self, model: str = "mistral", temperature: float = 0.3):
         self.model = model
         self.temperature = temperature
 
     def generate(self, question: str, context: str, question_type: QuestionType | None = None) -> str:
-        prompt = f"""Контекст из книги:
+        prompt = f"""Book context:
 {context}
 
-Вопрос: {question}"""
+Question: {question}"""
 
         if question_type and question_type != QuestionType.UNKNOWN:
-            prompt += f"\n(Тип вопроса: {question_type.value})"
+            prompt += f"\n(Question type: {question_type.value})"
 
         response = ollama.chat(
             model=self.model,
@@ -378,8 +297,6 @@ class OllamaLLM(BaseLLM):
 
 
 class OllamaLLMWithFallback(BaseLLM):
-    """С фоллбэком на другую модель при неудачных ответах."""
-
     def __init__(self, primary_model: str = "mistral-literary", fallback_model: str = "mistral"):
         self.primary = OllamaLLM(primary_model)
         self.fallback = OllamaLLM(fallback_model)
@@ -388,5 +305,5 @@ class OllamaLLMWithFallback(BaseLLM):
         try:
             return self.primary.generate(question, context, question_type)
         except Exception as e:
-            print(f"  ⚠️ Primary model error: {e}, using fallback")
+            print(f"  Primary model error: {e}, using fallback")
             return self.fallback.generate(question, context, question_type)

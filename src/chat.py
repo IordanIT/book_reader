@@ -1,5 +1,3 @@
-"""Чат-интерфейс с расширенным RAG-пайплайном."""
-
 import sys
 from pathlib import Path
 
@@ -8,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ollama
 
 from advanced_rag import AdvancedRAGPipeline
-from config import CONFIG, INDEX_DIR, OLLAMA_MODEL
+from config import CONFIG, INDEX_DIR
 
 
 def check_ollama():
@@ -16,56 +14,40 @@ def check_ollama():
         models = ollama.list()
         available = [m["name"].split(":")[0] for m in models["models"]]
         if CONFIG["llm"]["model"] not in available:
-            model_name = CONFIG["llm"]["model"]
-            print(f"  ⚠️  Модель {model_name} не найдена. Запустите: ollama pull {model_name}")
+            print(f"Model {CONFIG['llm']['model']} not found. Run: ollama pull {CONFIG['llm']['model']}")
             return False
         return True
     except Exception:
-        print("  ❌ Ollama не запущена. Установите: https://ollama.ai")
+        print("Ollama not running. Install: https://ollama.ai")
         return False
 
 
 def print_header(store):
-    print("\n" + "═" * 65)
-    print("  📚 BookTalk v2 — Поговори с книгой (ML-powered RAG)")
-    print("═" * 65)
-    print(f"\n  Доступные книги ({len(store.book_titles)}):")
+    print(f"\nBookTalk v2\n")
+    print(f"Books ({len(store.book_titles)}):")
     for title in sorted(store.book_titles):
-        print(f"    • {title}")
+        print(f"  - {title}")
 
-    print(f"\n  ML-модули:")
     c = CONFIG["classifier"]
     e = CONFIG["embedder"]
     r = CONFIG["reranker"]
     l = CONFIG["llm"]
 
-    clf_type = "fine-tuned" if c.get("use_finetuned") else "правила"
+    clf_type = "fine-tuned" if c.get("use_finetuned") else "rules"
     emb_type = "fine-tuned" if e.get("use_finetuned") else e["model_name"].split("/")[-1]
-    rnk_type = "fine-tuned" if r.get("use_finetuned") else ("кросс-энкодер" if r.get("use_default") else "выкл")
-    llm_type = l.get("model", "mistral")
+    rnk_type = "fine-tuned" if r.get("use_finetuned") else ("cross-encoder" if r.get("use_default") else "off")
 
-    print(f"    🧠 Классификатор: {clf_type}")
-    print(f"    🔢 Embeddings:    {emb_type}")
-    print(f"    📊 Re-ranker:     {rnk_type}")
-    print(f"    💬 LLM:           {llm_type}")
-
-    print(f"\n  Команды:")
-    print(f"    /book <назв>  — выбрать книгу")
-    print(f"    /all          — поиск по всем")
-    print(f"    /debug        — показать ML-диагностику")
-    print(f"    /help         — помощь")
-    print(f"    /quit         — выход")
-    print()
+    print(f"\nModules: classifier={clf_type}, embedder={emb_type}, reranker={rnk_type}, llm={l.get('model')}")
+    print(f"\nCommands: /book <name>, /all, /debug, /help, /quit\n")
 
 
 def main():
     from vector_store import VectorStore
 
-    print("🔍 Загрузка...")
     store = VectorStore(dim=384, index_dir=str(INDEX_DIR))
 
     if not store.load():
-        print("  ❌ Индекс не найден. Запустите: python src/index_books.py")
+        print("Index not found. Run: python src/index_books.py")
         return
 
     if not check_ollama():
@@ -79,16 +61,14 @@ def main():
 
     while True:
         try:
-            user_input = input("🔎 Вопрос> ").strip()
+            user_input = input("> ").strip()
         except (KeyboardInterrupt, EOFError):
-            print("\n👋 До встречи!")
             break
 
         if not user_input:
             continue
 
         if user_input.lower() in ("/quit", "/exit"):
-            print("👋 До встречи!")
             break
 
         if user_input.lower() == "/help":
@@ -97,7 +77,6 @@ def main():
 
         if user_input.lower() == "/debug":
             show_debug = not show_debug
-            print(f"  {'✅' if show_debug else '❌'} Диагностика {'включена' if show_debug else 'выключена'}")
             continue
 
         if user_input.lower().startswith("/book "):
@@ -105,33 +84,26 @@ def main():
             matches = [t for t in store.book_titles if book_name.lower() in t.lower()]
             if matches:
                 current_book = matches[0]
-                print(f"  📖 {current_book}")
             else:
-                print(f"  ⚠️  «{book_name}» не найдена")
+                print(f"'{book_name}' not found")
             continue
 
         if user_input.lower() == "/all":
             current_book = None
-            print("  🔍 Поиск по всем книгам")
             continue
 
-        # Запуск RAG-пайплайна
         result = pipeline.query(user_input, book_title=current_book)
 
-        print(f"\n💬 {result['answer']}\n")
+        print(f"\n{result['answer']}\n")
 
         if result["sources"]:
-            print("📚 Источники:")
             for s in result["sources"]:
-                loc = f" | стр. {s['page']}" if s['page'] else ""
-                print(f"  • {s['book']}{loc} (score: {s['score']:.3f})")
-                print(f"    «{s['preview']}»")
+                loc = f" | p.{s['page']}" if s['page'] else ""
+                print(f"  {s['book']}{loc} [{s['score']:.3f}]")
 
         if show_debug:
             d = result["debug"]
-            print(f"\n🔬 [debug] Тип: {d['question_type']} | "
-                  f"Уверенность: {d['confidence']:.2f} | "
-                  f"Найдено: {d['initial_results']} → {d['reranked_results']}")
+            print(f"[debug] {d['question_type']} | conf={d['confidence']:.2f} | {d['initial_results']}->{d['reranked_results']}")
 
         print()
 

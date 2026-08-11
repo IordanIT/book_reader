@@ -1,5 +1,3 @@
-"""Расширенный RAG-пайплайн с ML-модулями."""
-
 from ml_modules import (
     BaseLLM,
     BaseQuestionClassifier,
@@ -19,15 +17,6 @@ from vector_store import SearchResult, VectorStore
 
 
 class AdvancedRAGPipeline:
-    """Полный RAG-пайплайн с модульными ML-компонентами.
-
-    Каждый компонент можно заменить на fine-tuned версию:
-    - classifier: классификация типа вопроса
-    - embedder: векторизация
-    - reranker: переранжирование результатов
-    - llm: генерация ответа
-    """
-
     def __init__(
         self,
         vector_store: VectorStore,
@@ -46,7 +35,6 @@ class AdvancedRAGPipeline:
 
     @classmethod
     def default(cls, vector_store: VectorStore, ollama_model: str = "mistral") -> "AdvancedRAGPipeline":
-        """Стандартная конфигурация без fine-tuned моделей."""
         return cls(
             vector_store=vector_store,
             classifier=RuleBasedClassifier(),
@@ -57,7 +45,6 @@ class AdvancedRAGPipeline:
 
     @classmethod
     def from_config(cls, vector_store: VectorStore, config: dict) -> "AdvancedRAGPipeline":
-        """Создаёт pipeline из конфигурационного словаря."""
         classifier = None
         embedder = None
         reranker = None
@@ -105,25 +92,20 @@ class AdvancedRAGPipeline:
         )
 
     def query(self, question: str, book_title: str | None = None) -> dict:
-        """Полный RAG-пайплайн с диагностикой на каждом шаге."""
         debug = {}
 
-        # 1. Классификация вопроса
         classified: ClassifiedQuestion = self.classifier.classify(question)
         debug["question_type"] = classified.qtype.value
         debug["confidence"] = classified.confidence
         debug["search_query"] = classified.reformulated
 
-        # 2. Векторизация запроса
         query_emb = self.embedder.encode_query(classified.reformulated)
 
-        # 3. Первичный поиск (recall)
         initial_results: list[SearchResult] = self.vector_store.search(
             query_emb, top_k=self.top_k * 3, book_title=book_title
         )
         debug["initial_results"] = len(initial_results)
 
-        # 4. Переранжирование (precision)
         reranked_results = self.reranker.rerank(
             classified.reformulated, initial_results, top_k=self.top_k
         )
@@ -131,22 +113,19 @@ class AdvancedRAGPipeline:
 
         if not reranked_results:
             return {
-                "answer": "К сожалению, не удалось найти релевантные фрагменты.",
+                "answer": "Could not find relevant fragments.",
                 "sources": [],
                 "debug": debug,
             }
 
-        # 5. Формирование контекста
         context = self._format_context(reranked_results)
 
-        # 6. Генерация ответа
         answer = self.llm.generate(
             question=question,
             context=context,
             question_type=classified.qtype,
         )
 
-        # 7. Источники
         sources = self._format_sources(reranked_results)
 
         return {
@@ -158,9 +137,9 @@ class AdvancedRAGPipeline:
     def _format_context(self, results: list[SearchResult]) -> str:
         parts = []
         for i, r in enumerate(results, 1):
-            header = f"[Фрагмент {i} | {r.chunk.book_title}"
+            header = f"[Fragment {i} | {r.chunk.book_title}"
             if r.chunk.page:
-                header += f", стр. {r.chunk.page}"
+                header += f", p. {r.chunk.page}"
             header += f"]"
             parts.append(f"{header}\n{r.chunk.text}")
         return "\n\n".join(parts)
